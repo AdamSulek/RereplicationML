@@ -1,0 +1,19 @@
+name: rereplication-ml
+channels:
+  - conda-forge
+  - pytorch
+dependencies:
+  - python=3.10
+  - numpy
+  - pandas
+  - pyarrow
+  - scikit-learn
+  - imbalanced-learn
+  - xgboost
+  - rdkit
+  - pytorch
+  - cpuonly
+  - pip
+  - pip:
+      - huggingmolecules
+      - scikit-fingerprints

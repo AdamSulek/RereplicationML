@@ -216,3 +216,17 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Project outputs
+artifacts/
+outputs/
+results/
+models/
+checkpoints/
+*.joblib
+*.pkl
+*.pt
+*.pth
+
+# Local exploration
+notebooks/
