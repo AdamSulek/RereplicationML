@@ -217,6 +217,10 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+# Local manuscript/report files
+REPORT.md
+Rereplication_pub.pdf
+
 # Project outputs
 artifacts/
 outputs/
