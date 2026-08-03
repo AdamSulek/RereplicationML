@@ -35,9 +35,24 @@ Classical baselines use 10-fold stratified grid search inside the combined `trai
 
 ```bash
 conda env create -f environment.yml
+conda env update -f environment.yml --prune
 conda activate rereplication-ml
 
+python -c "import torch, huggingmolecules, skfp; print(torch.__version__)"
 python scripts/inspect_datasets.py
+```
+
+If `rereplication-ml` already exists, keep the `conda env update -f environment.yml --prune` step. It installs the pip-based dependencies used by R-MAT, including `huggingmolecules`.
+
+## Cluster Runs
+
+For Slurm-based runs, activate `rereplication-ml` before starting any script that touches R-MAT. Classical baselines and R-MAT can all be run from the same environment.
+
+```bash
+source /net/storage/pr3/plgrid/plggsanodrugs/miniconda/etc/profile.d/conda.sh
+conda activate rereplication-ml
+python scripts/train_xgb.py --dataset mcf10a
+python scripts/train_rmat.py --dataset mcf10a
 ```
 
 ## Train Models
@@ -56,6 +71,7 @@ Replace `mcf10a` with `sw480` to train on the second dataset. R-MAT may download
 ```bash
 python scripts/check_xgb.py --dataset mcf10a
 python scripts/check_rf.py --dataset mcf10a
+python scripts/check_svm.py --dataset mcf10a
 python scripts/check_rmat.py --dataset mcf10a
 ```
 
@@ -90,6 +106,6 @@ artifacts/
 | `scripts/train_rf.py` | Random Forest classification workflow. |
 | `scripts/train_svm.py` | Linear SVM classification workflow. |
 | `scripts/train_rmat.py` | R-MAT classification workflow. |
-| `scripts/check_*.py` | Evaluation of saved XGBoost, Random Forest, and R-MAT models. |
+| `scripts/check_*.py` | Evaluation of saved XGBoost, Random Forest, linear SVM, and R-MAT models. |
 | `scripts/data_featurizer.py` | Optional generation of a new fingerprint parquet file. |
 | `environment.yml` | Conda environment definition. |
