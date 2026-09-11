@@ -17,7 +17,7 @@ from rdkit.Chem import Draw
 from rdkit.Chem.Draw import rdMolDraw2D
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from scripts.train.train_xgb import feature_column, index_mask, load_data, model
+from scripts.train.train_xgb import feature_column, index_mask, load_data
 from scripts.interpretability.shap_structure_mapping import (
     count_ecfp_and_bit_info,
     select_local_bits,
@@ -38,6 +38,7 @@ COLORS = [
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", choices=["mcf10a", "sw480_clean"], required=True)
+    parser.add_argument("--model-path", type=Path, default=None)
     parser.add_argument("--output-dir", type=Path, default=Path("artifacts/xgb_full/tp_shap"))
     parser.add_argument("--top-n", type=int, default=5)
     parser.add_argument("--threshold", type=float, default=0.5)
@@ -77,17 +78,15 @@ def main() -> None:
     args = parse_args()
     namespace = argparse.Namespace(dataset=args.dataset)
     data = load_data(data_path(args.dataset), feature_column(namespace))
-    summary_path = Path("artifacts/xgb_full") / args.dataset / "scaffold/scaffold_summary.json"
-    params = json.loads(summary_path.read_text())["selected_params"]
+    model_path = args.model_path or (Path("artifacts/xgb_full") / args.dataset / "scaffold/model.json")
     X = data["X"]
     y = data["y"]
     splits = data["split"]
     smiles = data["smiles"]
-    train_idx = index_mask(splits, {f"train_{i}" for i in range(10)})
     test_idx = index_mask(splits, {"test"})
 
-    fitted = model(params, y[train_idx], args.n_jobs)
-    fitted.fit(X[train_idx], y[train_idx])
+    fitted = xgb.XGBClassifier(n_jobs=args.n_jobs)
+    fitted.load_model(model_path)
     booster = fitted.get_booster()
     probabilities = fitted.predict_proba(X[test_idx])[:, 1]
     contributions = booster.predict(
@@ -209,7 +208,7 @@ def main() -> None:
         "test_rows": int(len(test_idx)),
         "true_positive_rows": int(len(order)),
         "feature_length": FEATURE_LENGTH,
-        "selected_params": params,
+        "model_path": str(model_path.resolve()),
         "output": str(output.resolve()),
     }
     (output / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")

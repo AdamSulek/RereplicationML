@@ -241,3 +241,8 @@ reports/
 # Local exploration
 notebooks/
 test/
+
+# Local release data and archived legacy code
+archive/
+data/**/*.parquet
+data/**/*.csv
