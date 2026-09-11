@@ -227,6 +227,12 @@ outputs/
 results/
 models/
 checkpoints/
+huggingface/
+.runtime-deps*/
+huggingmolecules/
+pickle_dataloaders/
+logs/
+reports/
 *.joblib
 *.pkl
 *.pt

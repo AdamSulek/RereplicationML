@@ -1,111 +1,178 @@
 # RereplicationML
 
-Reproducible machine-learning workflows for prioritizing compounds associated with the DNA re-replication phenotype. The repository contains prepared PubChem-derived datasets for MCF10A and SW480 cells together with XGBoost, Random Forest, linear SVM, and R-MAT baselines.
+Reproducible machine-learning workflows for prioritizing compounds associated with the DNA re-replication phenotype. The primary manuscript models are XGBoost and R-MAT. Random Forest and linear SVM are retained for the supplementary benchmark table.
 
-## What Is Included
+## Data and checkpoints
 
-- Prepared parquet datasets with SMILES, binary activity labels, molecular features, and predefined scaffold splits.
-- XGBoost, Random Forest, linear SVM, and R-MAT binary-classification workflows.
-- Dataset audit and independent evaluation scripts.
-- A Conda environment definition.
+Prepared datasets and checkpoints are distributed separately through the [project Hugging Face dataset](https://huggingface.co/datasets/klimczakjakubdev/rereplication-ml). The repository's `data/` layout is intentionally unchanged during this code revision.
 
-For exact dataset counts, split details, and manuscript-consistency notes, generate the local audit with `python scripts/inspect_datasets.py`. A local `REPORT.md` may be kept outside Git for manuscript notes.
-
-## Workflow
-
-```mermaid
-flowchart LR
-    A[Prepared parquet data] --> B[Dataset audit]
-    B --> C[train_0 ... train_9]
-    C --> D[XGBoost]
-    C --> E[Random Forest]
-    C --> F[Linear SVM]
-    C --> J[R-MAT]
-    D --> G[Validation metrics]
-    E --> G
-    F --> G
-    J --> G
-    G --> H[Held-out scaffold test]
-    H --> I[artifacts/]
+```bash
+hf download klimczakjakubdev/rereplication-ml \
+  --repo-type dataset \
+  --local-dir ./downloaded_release
 ```
 
-Classical baselines use 10-fold stratified grid search inside the combined `train_*` partitions. The predefined `val` and `test` sets are kept outside hyperparameter search and are reported as independent scaffold-split evaluations.
+Consult the release manifest before placing downloaded files in their documented paths. Publication of the final Hugging Face layout and checksums is handled separately.
 
-## Quick Start
+## Installation
 
 ```bash
 conda env create -f environment.yml
-conda env update -f environment.yml --prune
 conda activate rereplication-ml
-
-python -c "import torch, huggingmolecules, skfp; print(torch.__version__)"
-python scripts/inspect_datasets.py
 ```
 
-If `rereplication-ml` already exists, keep the `conda env update -f environment.yml --prune` step. It installs the pip-based dependencies used by R-MAT, including `huggingmolecules`.
+R-MAT training normally requires a CUDA-compatible PyTorch build. Install the build appropriate for the reviewer machine or cluster before training R-MAT. The other workflows can run on CPU.
 
-## Cluster Runs
+## Data protocols
 
-For Slurm-based runs, activate `rereplication-ml` before starting any script that touches R-MAT. Classical baselines and R-MAT can all be run from the same environment.
+### Held-out scaffold protocol
+
+- `train_0` through `train_9` are combined for fitting.
+- `val` is used only for model/checkpoint selection.
+- `test` remains held out until selection is final and is then evaluated once.
+
+### Paper 10-fold protocol
+
+For fold `i`, the test set is `train_i`, validation is `train_((i + 1) mod 10)`, and training uses the other eight `train_*` shards plus the original `val` and `test` shards.
+
+This reproduces the established R-MAT-compatible protocol. It is not an independent evaluation of the original scaffold test partition.
+
+## Optional reference preprocessing
+
+Use released assignments for exact manuscript reproduction. To create a new reference preparation:
 
 ```bash
-source /net/storage/pr3/plgrid/plggsanodrugs/miniconda/etc/profile.d/conda.sh
-conda activate rereplication-ml
-python scripts/train_xgb.py --dataset mcf10a
-python scripts/train_rmat.py --dataset mcf10a
+python scripts/data_preparation/prepare_dataset.py \
+  --input raw_compounds.csv \
+  --output prepared_reference.parquet
 ```
 
-## Train Models
+This reference implementation uses RDKit canonical isomeric SMILES, selects the largest heavy-atom fragment with a deterministic tie break, removes duplicate canonical SMILES, rejects conflicting duplicate labels, creates a deterministic 80/10/10 Bemis-Murcko core-scaffold split through scikit-fingerprints, and divides the scaffold-training subset into ten deterministic stratified shards. It is not claimed to be the historical source of the released assignments.
+
+## Generate XGBoost ECFP features
 
 ```bash
-python scripts/train_xgb.py --dataset mcf10a
-python scripts/train_rf.py --dataset mcf10a
-python scripts/train_svm.py --dataset mcf10a
-python scripts/train_rmat.py --dataset mcf10a
+python scripts/data_preparation/generate_ecfp.py \
+  --input prepared.parquet \
+  --output prepared_ecfp.parquet
 ```
 
-Replace `mcf10a` with `sw480` to train on the second dataset. R-MAT may download pretrained weights on first use. It uses CUDA only when the installed PyTorch build provides it.
+The representation is fully fixed: Morgan/ECFP radius 2, 2048 integer count features, chirality disabled, bond types enabled, ring membership enabled, and count simulation disabled. The feature column is `X_morgan_radius_2_count`.
 
-## Evaluate a Saved Model
+## Generate R-MAT features
 
 ```bash
-python scripts/check_xgb.py --dataset mcf10a
-python scripts/check_rf.py --dataset mcf10a
-python scripts/check_svm.py --dataset mcf10a
-python scripts/check_rmat.py --dataset mcf10a
+python scripts/data_preparation/featurize_rmat.py \
+  --dataset mcf10a \
+  --input prepared.parquet \
+  --output-dir pickle_dataloaders/mcf10a
 ```
 
-## Outputs
+By default this writes `train_0.p` through `train_9.p`, `val.p`, and `test.p` with `RMatFeaturizer.from_pretrained("rmat_4M")`.
 
-Each run writes its model and metrics below `artifacts/`:
+## Train XGBoost
 
-```text
-artifacts/
-  |-- xgboost/<dataset>/
-  |   |-- model.json
-  |   `-- metrics.json
-  |-- random_forest/<dataset>/
-  |   |-- model.joblib
-  |   `-- metrics.json
-  |-- svm/<dataset>/
-  |   |-- model.joblib
-  |   `-- metrics.json
-  `-- rmat/<dataset>/
-      |-- model.pt
-      `-- metrics.json
+```bash
+python scripts/train/train_xgb.py \
+  --dataset mcf10a \
+  --mode scaffold \
+  --selection-metric roc_auc
+
+python scripts/train/train_xgb.py --dataset mcf10a --mode kfold
 ```
 
-## Repository Layout
+Scaffold hyperparameters are chosen on validation data. The selected scaffold model is evaluated once on the held-out scaffold test data. The 10-fold mode uses frozen selected hyperparameters and follows the paper protocol above.
 
-| Path | Description |
-| --- | --- |
-| `data/mcf10a/raw.parquet` | Prepared MCF10A dataset. |
-| `data/sw480/raw.parquet` | Prepared SW480 dataset. |
-| `scripts/inspect_datasets.py` | Reports class counts and predefined splits. |
-| `scripts/train_xgb.py` | XGBoost classification workflow. |
-| `scripts/train_rf.py` | Random Forest classification workflow. |
-| `scripts/train_svm.py` | Linear SVM classification workflow. |
-| `scripts/train_rmat.py` | R-MAT classification workflow. |
-| `scripts/check_*.py` | Evaluation of saved XGBoost, Random Forest, linear SVM, and R-MAT models. |
-| `scripts/data_featurizer.py` | Optional generation of a new fingerprint parquet file. |
-| `environment.yml` | Conda environment definition. |
+## Train R-MAT
+
+Weighted BCE:
+
+```bash
+python scripts/train/train_rmat.py \
+  --dataset mcf10a --split-mode scaffold \
+  --loss bce --lr 2.5e-5 \
+  --selection-criterion val_pr_auc
+```
+
+Weighted focal loss:
+
+```bash
+python scripts/train/train_rmat.py \
+  --dataset mcf10a --split-mode scaffold \
+  --loss focal --focal-gamma 2 --lr 2.5e-5 \
+  --selection-criterion val_pr_auc
+```
+
+`--selection-criterion` accepts `val_loss`, `val_roc_auc`, or `val_pr_auc`. The chosen criterion controls both checkpoint replacement and early-stopping patience. Learning-rate/loss searches use repeated invocations of this same trainer; there is no separate hyperparameter-search implementation.
+
+For fold 0 of the paper 10-fold protocol:
+
+```bash
+python scripts/train/train_rmat.py \
+  --dataset mcf10a --split-mode kfold --fold 0 \
+  --loss focal --lr 2.5e-5 \
+  --selection-criterion val_pr_auc
+```
+
+Repeat `--fold 0` through `--fold 9`. Each run records configuration, source pickle assignments, validation history, selected criterion/value/epoch, checkpoint metadata, and final test metrics.
+
+## Evaluate saved models
+
+```bash
+python scripts/model_evaluation/evaluate_xgb.py \
+  --dataset mcf10a --split test \
+  --model-path artifacts/xgb_full/mcf10a/scaffold/model.json
+
+python scripts/model_evaluation/evaluate_rmat.py \
+  --checkpoint path/to/best_pr_auc.pt \
+  --split-pickle pickle_dataloaders/mcf10a/test.p
+```
+
+Reported screening metrics are ROC-AUC, average precision (called PR-AUC), F1, recall, precision, active prevalence, PR-AUC divided by prevalence, EF@1%, and EF@5%. Threshold metrics default to 0.5. Ranking cutoffs use `ceil(N × fraction)` after a stable descending score sort.
+
+Model selection always uses validation data. Final test metrics must not be used to choose the loss, learning rate, or checkpoint criterion.
+
+## Predict external SMILES
+
+The input must be a CSV containing `smiles`; [examples/example_smiles.csv](examples/example_smiles.csv) is a minimal example.
+
+```bash
+python scripts/model_evaluation/predict_xgb.py \
+  --input examples/example_smiles.csv \
+  --model-path path/to/model.json \
+  --output predictions_xgb.csv
+
+python scripts/model_evaluation/predict_rmat.py \
+  --input examples/example_smiles.csv \
+  --checkpoint path/to/checkpoint.pt \
+  --output predictions_rmat.csv
+```
+
+Both commands load saved models and return a `prediction_score`; they do not retrain models.
+
+## Applicability domain
+
+```bash
+python scripts/model_evaluation/applicability_domain.py \
+  --input examples/example_smiles.csv \
+  --reference data/mcf10a/raw.parquet \
+  --output applicability_domain.csv
+```
+
+AD uses a binary Morgan radius-2, 2048-bit fingerprint, Tanimoto similarity, the arithmetic mean of the five nearest training-reference similarities, and the fixed cutoff `0.49938`. This binary similarity fingerprint is deliberately distinct from the count ECFP used by XGBoost.
+
+## XGBoost SHAP interpretation
+
+The audited manuscript workflow is restricted to held-out scaffold true positives and local positive SHAP features present in each compound:
+
+```bash
+python scripts/interpretability/draw_xgb_tp_shap.py --dataset mcf10a
+python scripts/interpretability/summarize_xgb_tp_motifs.py --dataset mcf10a
+python scripts/interpretability/export_mcf10a_tp_ring_analysis.py
+```
+
+The mapping code recomputes the exact count ECFP, verifies it against the model row, maps all hashed-feature occurrences to atoms and bonds, and excludes absent bits. External compound examples can be drawn with `draw_xgb_shap_examples.py`. The older binary-bit SHAP mapping is not part of the public workflow.
+
+## Visualization and supplementary models
+
+Plotting-only utilities are under `scripts/visualization/`, including UMAP, saved performance tables, and SHAP plots. Random Forest and linear SVM training/evaluation scripts are under `scripts/supplementary_models/`; their scientific implementations have not been redesigned.
