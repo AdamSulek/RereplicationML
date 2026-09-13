@@ -85,10 +85,9 @@ def main() -> None:
     smiles = data["smiles"]
     test_idx = index_mask(splits, {"test"})
 
-    fitted = xgb.XGBClassifier(n_jobs=args.n_jobs)
-    fitted.load_model(model_path)
-    booster = fitted.get_booster()
-    probabilities = fitted.predict_proba(X[test_idx])[:, 1]
+    booster = xgb.Booster()
+    booster.load_model(model_path)
+    probabilities = booster.predict(xgb.DMatrix(X[test_idx]), validate_features=False)
     contributions = booster.predict(
         xgb.DMatrix(X[test_idx]), pred_contribs=True, validate_features=False
     )[:, :-1]

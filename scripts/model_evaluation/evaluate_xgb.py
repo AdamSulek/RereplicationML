@@ -10,11 +10,12 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from xgboost import XGBClassifier
+import xgboost as xgb
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 from scripts.model_evaluation.metrics import screening_metrics
+from scripts.train.train_xgb import index_mask, load_data
 
 
 FEATURE_COLUMN = "X_morgan_radius_2_count"
@@ -41,18 +42,16 @@ def main() -> None:
     args = parser.parse_args()
 
     data_path = args.data_path or default_data_path(args.dataset, args.data_dir)
-    frame = pd.read_parquet(
-        data_path,
-        columns=["smiles", "activity", "split", args.feature_column],
-        filters=[("split", "=", args.split)],
-    )
-    if frame.empty:
+    data = load_data(data_path, args.feature_column)
+    split_index = index_mask(data["split"], {args.split})
+    if not len(split_index):
         raise ValueError(f"Prepared split {args.split!r} is empty")
-    features = np.stack(frame[args.feature_column].to_numpy()).astype(np.float32)
-    labels = frame["activity"].astype(int).to_numpy()
-    model = XGBClassifier()
-    model.load_model(args.model_path)
-    probabilities = model.predict_proba(features)[:, 1]
+    features = data["X"][split_index]
+    labels = data["y"][split_index]
+    smiles = np.asarray(data["smiles"], dtype=object)[split_index]
+    booster = xgb.Booster()
+    booster.load_model(args.model_path)
+    probabilities = booster.predict(xgb.DMatrix(features), validate_features=False)
     result = {
         "dataset": args.dataset,
         "split": args.split,
@@ -64,7 +63,7 @@ def main() -> None:
         args.predictions.parent.mkdir(parents=True, exist_ok=True)
         pd.DataFrame(
             {
-                "smiles": frame["smiles"].astype(str),
+                "smiles": smiles.astype(str),
                 "y_true": labels,
                 "prediction_score": probabilities,
             }
