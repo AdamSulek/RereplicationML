@@ -227,6 +227,12 @@ outputs/
 results/
 models/
 checkpoints/
+huggingface/
+.runtime-deps*/
+huggingmolecules/
+pickle_dataloaders/
+logs/
+reports/
 *.joblib
 *.pkl
 *.pt
@@ -235,3 +241,8 @@ checkpoints/
 # Local exploration
 notebooks/
 test/
+
+# Local release data and archived legacy code
+archive/
+data/**/*.parquet
+data/**/*.csv

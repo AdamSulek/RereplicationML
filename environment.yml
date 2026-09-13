@@ -11,9 +11,13 @@ dependencies:
   - imbalanced-learn
   - xgboost
   - rdkit
+  - scipy
+  - matplotlib
+  - pillow
+  - umap-learn
   - pytorch
-  - cpuonly
   - pip
   - pip:
+      - huggingface_hub
       - huggingmolecules
       - scikit-fingerprints
